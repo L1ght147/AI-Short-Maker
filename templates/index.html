@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Shorts Maker Pro | Studio Edition</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0c;
+            --surface: #141417;
+            --surface-hover: #1c1c21;
+            --border: #26262b;
+            --border-active: #3f3f46;
+            --primary: #ffffff;
+            --primary-muted: #a1a1aa;
+            --accent: #3b82f6;
+            --error: #ef4444;
+            --success: #10b981;
+            --text: #f4f4f5;
+            --text-dim: #71717a;
+            --radius-lg: 12px;
+            --radius-md: 8px;
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body { 
+            background-color: var(--bg); 
+            color: var(--text); 
+            font-family: 'Inter', sans-serif; 
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .app-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+            width: 100%;
+        }
+
+        /* --- Header --- */
+        header {
+            margin-bottom: 4rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .lang-toggle {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--primary-muted);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .lang-toggle:hover {
+            border-color: var(--border-active);
+            color: var(--primary);
+        }
+
+        .brand h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            text-transform: uppercase;
+            color: var(--primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .brand p {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            font-weight: 400;
+        }
+
+        .header-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 1rem;
+        }
+
+        .system-status {
+            font-size: 0.75rem;
+            font-family: monospace;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--success);
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        /* --- Layout Grid --- */
+        .workspace {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            gap: 3rem;
+            align-items: start;
+        }
+
+        @media (max-width: 900px) {
+            .workspace { grid-template-columns: 1fr; }
+        }
+
+        /* --- Panels & Typography --- */
+        .section-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            margin-bottom: 1.5rem;
+            display: block;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            transition: var(--transition);
+        }
+
+        /* --- Inputs --- */
+        .input-group { margin-bottom: 2rem; }
+        
+        label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--primary-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        input[type="text"], 
+        input[type="file"]::file-selector-button {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 0.75rem 1rem;
+            color: var(--text);
+            font-size: 0.9rem;
+            transition: var(--transition);
+            outline: none;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--border-active);
+            box-shadow: 0 0 0 1px var(--border-active);
+        }
+
+        input[type="file"] {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        input[type="file"]::file-selector-button {
+            width: auto;
+            margin-right: 1rem;
+            cursor: pointer;
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+        }
+
+        /* --- Control Elements --- */
+        .control-row {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .option-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .option-item input {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+            position: relative;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .option-item input:checked {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .option-item input:checked::after {
+            content: "✓";
+            position: absolute;
+            color: var(--bg);
+            font-size: 10px;
+            font-weight: 800;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .option-text {
+            font-size: 0.85rem;
+            color: var(--primary-muted);
+        }
+
+        /* --- Buttons --- */
+        button {
+            width: 100%;
+            padding: 1rem;
+            border-radius: var(--radius-md);
+            font-size: 0.9rem;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: var(--bg);
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--primary);
+        }
+
+        .btn-outline:hover {
+            background: var(--surface-hover);
+            border-color: var(--border-active);
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* --- Processing View --- */
+        .terminal {
+            background: #000;
+            border-radius: var(--radius-md);
+            padding: 1.25rem;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            border: 1px solid var(--border);
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .percent-display {
+            color: var(--primary-muted);
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        .log-line { color: var(--text-dim); }
+        .log-line.active { color: var(--accent); }
+        .log-line.error { color: var(--error); }
+
+        .progress-container {
+            width: 100%;
+            height: 2px;
+            background: var(--border);
+            margin-top: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            position: absolute;
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+
+        /* --- Selection List --- */
+        .shorts-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .short-item {
+            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: var(--transition);
+        }
+
+        .short-item:hover {
+            border-color: var(--border-active);
+            background: var(--surface-hover);
+        }
+
+        .short-info { flex: 1; }
+        .short-title { font-size: 0.9rem; font-weight: 500; display: block; }
+        .short-meta { font-size: 0.75rem; color: var(--text-dim); }
+
+        /* --- Results --- */
+        .results-scroll {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .result-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }
+
+        .result-card video {
+            width: 100%;
+            aspect-ratio: 9/16;
+            background: #000;
+            display: block;
+        }
+
+        .result-card.wide video { aspect-ratio: 16/9; }
+
+        .result-footer {
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .download-link {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: var(--transition);
+        }
+
+        .download-link:hover { color: var(--primary); }
+
+        .hidden { display: none !important; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-active); }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="brand">
+                <h1>AI Shorts Maker <span style="font-weight:300; opacity:0.5;">Pro</span></h1>
+                <p id="t-subtitle">Neural Content Extraction Engine</p>
+            </div>
+            <div class="header-controls">
+                <button class="lang-toggle" onclick="toggleLang()">EN / RU</button>
+                <div class="system-status">
+                    <div class="status-dot"></div>
+                    <span id="t-status-ready">SYSTEM READY // NVENC ENABLED</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <!-- Sidebar: Controls -->
+            <aside>
+                <span class="section-label" id="t-label-1">01 // Source Configuration</span>
+                <div class="card" style="margin-bottom: 2rem;">
+                    <div class="input-group">
+                        <label id="t-input-yt">YouTube Endpoint</label>
+                        <input type="text" id="videoUrl" placeholder="https://youtube.com/watch?v=...">
+                    </div>
+                    <div class="input-group">
+                        <label id="t-input-local">Local Asset</label>
+                        <input type="file" id="videoFile" accept="video/mp4,video/x-m4v,video/*">
+                    </div>
+                </div>
+
+                <span class="section-label" id="t-label-2">02 // Processing Parameters</span>
+                <div class="card" style="margin-bottom: 2rem;">
+                    <div class="input-group">
+                        <label id="t-input-arch">Output Architecture</label>
+                        <div class="control-row">
+                            <label class="option-item">
+                                <input type="radio" name="format_type" value="Шортс (9:16 с рамками)" checked>
+                                <span class="option-text" id="t-opt-vertical">Vertical Studio (9:16 Letterbox)</span>
+                            </label>
+                            <label class="option-item">
+                                <input type="radio" name="format_type" value="Исходное разрешение">
+                                <span class="option-text" id="t-opt-native">Native Resolution (As Source)</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <label id="t-input-enh">Enhancements</label>
+                    <div class="control-row">
+                        <label class="option-item">
+                            <input type="checkbox" id="doSubs">
+                            <span class="option-text" id="t-opt-subs">Generate Burn-in Subtitles</span>
+                        </label>
+                        <label class="option-item">
+                            <input type="checkbox" id="doSilence">
+                            <span class="option-text" id="t-opt-silence">Adaptive Silence Trimming (JumpCuts)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button id="btnAnalyze" class="btn-primary">
+                    <span id="t-btn-analyze">RUN ANALYTICS ENGINE</span>
+                </button>
+            </aside>
+
+            <!-- Main: Viewport -->
+            <section>
+                <span class="section-label" id="t-label-3">03 // Engine Status</span>
+                <div class="terminal">
+                    <div class="terminal-header">
+                        <div id="statusText" class="log-line">Idle. Waiting for input assets...</div>
+                        <div id="percentText" class="percent-display hidden">0%</div>
+                    </div>
+                    <div class="progress-container" id="progressWrapper">
+                        <div id="progressBar" class="progress-bar"></div>
+                    </div>
+                </div>
+
+                <div id="step2Container" class="hidden">
+                    <span class="section-label" id="t-label-4">04 // Content Selection</span>
+                    <div class="shorts-grid" id="shortsList"></div>
+                    <button id="btnRender" class="btn-primary" style="margin-bottom: 4rem;">
+                        <span id="t-btn-render">EXECUTE PRODUCTION RENDER</span>
+                    </button>
+                </div>
+
+                <div id="resultsContainer" class="hidden">
+                    <span class="section-label" id="t-label-5">05 // Generated Deliverables</span>
+                    <div class="results-scroll" id="videoResults"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const translations = {
+            ru: {
+                subtitle: "Нейронный движок извлечения контента",
+                statusReady: "СИСТЕМА ГОТОВА // NVENC ВКЛЮЧЕН",
+                label1: "01 // Конфигурация источника",
+                inputYt: "Ссылка YouTube",
+                inputLocal: "Локальный файл",
+                label2: "02 // Параметры обработки",
+                inputArch: "Архитектура вывода",
+                optVertical: "Вертикальная студия (9:16 Letterbox)",
+                optNative: "Исходное разрешение (как в оригинале)",
+                inputEnh: "Улучшения",
+                optSubs: "Генерировать вшитые субтитры",
+                optSilence: "Адаптивное удаление тишины (JumpCuts)",
+                btnAnalyze: "ЗАПУСТИТЬ АНАЛИТИЧЕСКИЙ ДВИЖОК",
+                btnAnalyzeActive: "ОБРАБОТКА...",
+                label3: "03 // Статус системы",
+                idle: "Ожидание. Готов к загрузке активов...",
+                label4: "04 // Выбор контента",
+                btnRender: "ЗАПУСТИТЬ ФИНАЛЬНЫЙ РЕНДЕР",
+                label5: "05 // Сгенерированные материалы",
+                duration: "Длительность",
+                download: "Скачать",
+                initSession: "Инициализация сессии...",
+                uploading: "Загрузка файла на сервер...",
+                preparing: "Подготовка конвейера рендера...",
+                zeroItems: "Предупреждение: выбрано 0 элементов для рендера.",
+                noSource: "Ошибка: Источник не предоставлен."
+            },
+            en: {
+                subtitle: "Neural Content Extraction Engine",
+                statusReady: "SYSTEM READY // NVENC ENABLED",
+                label1: "01 // Source Configuration",
+                inputYt: "YouTube Endpoint",
+                inputLocal: "Local Asset",
+                label2: "02 // Processing Parameters",
+                inputArch: "Output Architecture",
+                optVertical: "Vertical Studio (9:16 Letterbox)",
+                optNative: "Native Resolution (As Source)",
+                inputEnh: "Enhancements",
+                optSubs: "Generate Burn-in Subtitles",
+                optSilence: "Adaptive Silence Trimming (JumpCuts)",
+                btnAnalyze: "RUN ANALYTICS ENGINE",
+                btnAnalyzeActive: "PROCESSING...",
+                label3: "03 // Engine Status",
+                idle: "Idle. Waiting for input assets...",
+                label4: "04 // Content Selection",
+                btnRender: "EXECUTE PRODUCTION RENDER",
+                label5: "05 // Generated Deliverables",
+                duration: "Duration",
+                download: "Download",
+                initSession: "Initializing session...",
+                uploading: "Uploading assets to server...",
+                preparing: "Preparing render pipeline...",
+                zeroItems: "Render Warning: Zero items selected for production.",
+                noSource: "Engine Error: No source asset provided."
+            }
+        };
+
+        let currentLang = 'en';
+
+        function updateUI() {
+            const t = translations[currentLang];
+            document.getElementById('t-subtitle').innerText = t.subtitle;
+            document.getElementById('t-status-ready').innerText = t.statusReady;
+            document.getElementById('t-label-1').innerText = t.label1;
+            document.getElementById('t-input-yt').innerText = t.inputYt;
+            document.getElementById('t-input-local').innerText = t.inputLocal;
+            document.getElementById('t-label-2').innerText = t.label2;
+            document.getElementById('t-input-arch').innerText = t.inputArch;
+            document.getElementById('t-opt-vertical').innerText = t.optVertical;
+            document.getElementById('t-opt-native').innerText = t.optNative;
+            document.getElementById('t-input-enh').innerText = t.inputEnh;
+            document.getElementById('t-opt-subs').innerText = t.optSubs;
+            document.getElementById('t-opt-silence').innerText = t.optSilence;
+            document.getElementById('t-btn-analyze').innerText = btnAnalyze.disabled ? t.btnAnalyzeActive : t.btnAnalyze;
+            document.getElementById('t-label-3').innerText = t.label3;
+            if (statusText.innerText.includes('Idle') || statusText.innerText.includes('Ожидание')) {
+                statusText.innerText = t.idle;
+            }
+            document.getElementById('t-label-4').innerText = t.label4;
+            document.getElementById('t-btn-render').innerText = t.btnRender;
+            document.getElementById('t-label-5').innerText = t.label5;
+        }
+
+        function toggleLang() {
+            currentLang = currentLang === 'en' ? 'ru' : 'en';
+            updateUI();
+        }
+
+        const btnAnalyze = document.getElementById('btnAnalyze');
+        const btnRender = document.getElementById('btnRender');
+        const statusText = document.getElementById('statusText');
+        const percentText = document.getElementById('percentText');
+        const progressBar = document.getElementById('progressBar');
+        const step2Container = document.getElementById('step2Container');
+        const shortsList = document.getElementById('shortsList');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const videoResults = document.getElementById('videoResults');
+
+        function updateStatus(text, progress = null, isError = false) {
+            statusText.innerText = text;
+            statusText.className = 'log-line' + (isError ? ' error' : (progress !== null ? ' active' : ''));
+            
+            if (progress !== null) {
+                percentText.innerText = progress + '%';
+                percentText.classList.remove('hidden');
+                progressBar.style.width = progress + '%';
+            } else {
+                percentText.classList.add('hidden');
+            }
+        }
+
+        btnAnalyze.addEventListener('click', async () => {
+            const t = translations[currentLang];
+            const formData = new FormData();
+            const url = document.getElementById('videoUrl').value;
+            const file = document.getElementById('videoFile').files[0];
+            
+            if (!url && !file) {
+                updateStatus(t.noSource, null, true);
+                return;
+            }
+            
+            if (url) formData.append('video_url', url);
+            if (file) formData.append('video_file', file);
+            
+            btnAnalyze.disabled = true;
+            document.getElementById('t-btn-analyze').innerText = t.btnAnalyzeActive;
+            step2Container.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            updateStatus(t.initSession, 5);
+            
+            try {
+                updateStatus(t.uploading, 7);
+                const upRes = await fetch('/api/upload', { method: 'POST', body: formData });
+                if (!upRes.ok) throw new Error("Asset upload failed");
+                
+                const eventSource = new EventSource('/api/analyze_stream');
+                eventSource.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    updateStatus(data.status, data.progress, !!data.error);
+                    
+                    if (data.error || data.done) {
+                        eventSource.close();
+                        btnAnalyze.disabled = false;
+                        document.getElementById('t-btn-analyze').innerText = t.btnAnalyze;
+                        
+                        if (data.done && data.shorts && data.shorts.length > 0) {
+                            shortsList.innerHTML = '';
+                            data.shorts.forEach((s, idx) => {
+                                const div = document.createElement('div');
+                                div.className = 'short-item';
+                                div.innerHTML = `
+                                    <input type="checkbox" value="${idx}" checked style="appearance:none; width:16px; height:16px; border:1px solid var(--border); border-radius:4px; background:var(--bg); cursor:pointer;">
+                                    <div class="short-info">
+                                        <span class="short-title">${s.title}</span>
+                                        <span class="short-meta">${t.duration}: ${s.start}s — ${s.end}s</span>
+                                    </div>
+                                `;
+                                const cb = div.querySelector('input');
+                                cb.addEventListener('change', () => {
+                                    cb.style.background = cb.checked ? 'var(--primary)' : 'var(--bg)';
+                                });
+                                cb.style.background = 'var(--primary)';
+                                shortsList.appendChild(div);
+                            });
+                            step2Container.classList.remove('hidden');
+                            step2Container.scrollIntoView({ behavior: 'smooth' });
+                        }
+                    }
+                };
+            } catch (err) {
+                updateStatus("System Halt: " + err.message, null, true);
+                btnAnalyze.disabled = false;
+                document.getElementById('t-btn-analyze').innerText = t.btnAnalyze;
+            }
+        });
+        
+        btnRender.addEventListener('click', async () => {
+            const t = translations[currentLang];
+            const checkboxes = shortsList.querySelectorAll('input[type="checkbox"]:checked');
+            const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            if (selectedIndices.length === 0) {
+                updateStatus(t.zeroItems, null, true);
+                return;
+            }
+            
+            const formatType = document.querySelector('input[name="format_type"]:checked').value;
+            const doSubs = document.getElementById('doSubs').checked;
+            const doSilence = document.getElementById('doSilence').checked;
+            
+            btnRender.disabled = true;
+            btnAnalyze.disabled = true;
+            resultsContainer.classList.add('hidden');
+            updateStatus(t.preparing, 0);
+            
+            try {
+                const payload = {
+                    selected_indices: selectedIndices,
+                    format_type: formatType,
+                    do_subs: doSubs,
+                    do_silence: doSilence
+                };
+                const res = await fetch('/api/render', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error("Pipeline initialization failed");
+                
+                const eventSource = new EventSource('/api/render_stream');
+                eventSource.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    updateStatus(data.status, data.progress, !!data.error);
+                    
+                    if (data.error || data.done) {
+                        eventSource.close();
+                        btnRender.disabled = false;
+                        btnAnalyze.disabled = false;
+                        document.getElementById('t-btn-analyze').innerText = t.btnAnalyze;
+                        
+                        if (data.done && data.files) {
+                            videoResults.innerHTML = '';
+                            data.files.forEach(f => {
+                                const filename = f.split('/').pop();
+                                const div = document.createElement('div');
+                                div.className = 'result-card' + (formatType.includes('Исходное') ? ' wide' : '');
+                                div.innerHTML = `
+                                    <video src="${f}" controls preload="metadata"></video>
+                                    <div class="result-footer">
+                                        <span style="font-size:0.7rem; color:var(--text-dim); font-family:monospace;">${filename}</span>
+                                        <a href="${f}" download class="download-link">${t.download}</a>
+                                    </div>
+                                `;
+                                videoResults.appendChild(div);
+                            });
+                            resultsContainer.classList.remove('hidden');
+                            resultsContainer.scrollIntoView({ behavior: 'smooth' });
+                        }
+                    }
+                };
+            } catch (err) {
+                updateStatus("Render Critical Error: " + err.message, null, true);
+                btnRender.disabled = false;
+                btnAnalyze.disabled = false;
+            }
+        });
+
+        // Init UI on load
+        updateUI();
+    </script>
+</body>
+</html>

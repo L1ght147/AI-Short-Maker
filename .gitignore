@@ -1,0 +1,16 @@
+# Dependencies
+__pycache__/
+*.pyc
+
+# Project Specific
+temp_processing/
+output_shorts/
+.notebook/
+*.mp4
+*.wav
+*.srt
+
+# Virtual Environments
+.venv/
+venv/
+env/

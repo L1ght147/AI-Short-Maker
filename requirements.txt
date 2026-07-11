@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-multipart
+jinja2
+yt-dlp
+faster-whisper
+opencv-python
+numpy
+requests
+torch
+mediapipe
