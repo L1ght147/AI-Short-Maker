@@ -1,7 +1,7 @@
 @echo off
 title AI Shorts Maker Pro - Installer
 echo ==========================================
-echo    AI Shorts Maker Pro | Installation
+echo    AI Shorts Maker Pro ^| Installation
 echo ==========================================
 echo.
 
@@ -25,7 +25,7 @@ if %errorlevel% neq 0 (
     echo [!] Please install it from https://ollama.com/
     echo [!] After installation, run this script again or pull model manually: ollama pull qwen2.5
 ) else (
-    echo [+] Pulling AI model (qwen2.5)...
+    echo [+] Pulling AI model qwen2.5...
     ollama pull qwen2.5
 )
 

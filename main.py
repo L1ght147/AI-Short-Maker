@@ -2,15 +2,17 @@ import os
 import re
 import gc
 import json
+import math
 import shutil
 import subprocess
 import site
 import traceback
+import asyncio
 
-# Add ffmpeg to PATH if it exists in standard winget installation path
-ffmpeg_winget_path = r"C:\Users\Light\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin"
-if os.path.exists(ffmpeg_winget_path) and ffmpeg_winget_path not in os.environ["PATH"]:
-    os.environ["PATH"] += os.pathsep + ffmpeg_winget_path
+# Add ffmpeg to PATH if FFMPEG_DIR points to its bin directory
+ffmpeg_dir = os.environ.get("FFMPEG_DIR")
+if ffmpeg_dir and os.path.exists(ffmpeg_dir) and ffmpeg_dir not in os.environ["PATH"]:
+    os.environ["PATH"] += os.pathsep + ffmpeg_dir
 
 # Add NVIDIA CUDA libraries to PATH and DLL directories to fix cublas64_12.dll error
 try:
@@ -29,7 +31,7 @@ try:
 except Exception as e:
     print(f"Failed to add NVIDIA DLLs: {e}")
 
-from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -41,16 +43,14 @@ import torch
 import requests
 from faster_whisper import WhisperModel
 
-# Проверка наличия FFmpeg
-if not shutil.which("ffmpeg"):
-    print("❌ ОШИБКА: FFmpeg не найден! Убедитесь, что он установлен и добавлен в PATH.")
-    exit(1)
-
 # Настройки
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen2.5"
+OLLAMA_NUM_CTX = 32768
 TEMP_DIR = "temp_processing"
 OUTPUT_DIR = "output_shorts"
+HOST = os.environ.get("HOST", "127.0.0.1")
+BUSY_MESSAGE = "Задача уже выполняется. Дождитесь её завершения."
 
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -75,12 +75,18 @@ def download_youtube_video(url, output_path):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
+def run_ffmpeg(command):
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"FFmpeg завершился с кодом {result.returncode}: {stderr[-500:]}")
+
 def extract_audio(video_path, audio_path):
     command = [
-        "ffmpeg", "-y", "-i", video_path, 
+        "ffmpeg", "-y", "-i", video_path,
         "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path
     ]
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    run_ffmpeg(command)
 
 def transcribe_audio(audio_path):
     model = WhisperModel("medium", device="cuda", compute_type="float16")
@@ -97,6 +103,33 @@ def transcribe_audio(audio_path):
     del model
     free_vram()
     return full_text, segments
+
+class OllamaError(Exception):
+    pass
+
+def validate_shorts(raw_shorts):
+    if not isinstance(raw_shorts, list):
+        return []
+
+    valid_shorts = []
+    for i, short in enumerate(raw_shorts):
+        try:
+            start = float(short["start"])
+            end = float(short["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end):
+            continue
+
+        title = short.get("title")
+        if not isinstance(title, str) or not title.strip():
+            title = f"short_{i+1}"
+        valid_shorts.append({"start": start, "end": end, "title": title})
+
+    dropped = len(raw_shorts) - len(valid_shorts)
+    if dropped:
+        print(f"Отброшено некорректных клипов от модели: {dropped}")
+    return valid_shorts
 
 def analyze_with_ollama(transcript):
     prompt = f"""
@@ -129,22 +162,30 @@ def analyze_with_ollama(transcript):
         "stream": False,
         "keep_alive": 0,
         "options": {
-            "num_ctx": 32768
+            "num_ctx": OLLAMA_NUM_CTX
         }
     }
-    
-    response = requests.post(OLLAMA_API_URL, json=payload)
-    if response.status_code == 200:
-        try:
-            data = response.json()
-            response_text = data.get("response", "{}")
-            response_text = re.sub(r"```(?:json)?\n?|```", "", response_text).strip()
-            shorts_data = json.loads(response_text)
-            return shorts_data.get("shorts", [])
-        except Exception:
-            return []
-    else:
-        return []
+
+    try:
+        response = requests.post(OLLAMA_API_URL, json=payload)
+    except requests.RequestException as e:
+        raise OllamaError(f"Не удалось обратиться к Ollama ({OLLAMA_API_URL}): {e}") from e
+
+    if response.status_code != 200:
+        raise OllamaError(f"Ollama вернула код {response.status_code}: {response.text[:300]}")
+
+    try:
+        data = response.json()
+        response_text = data.get("response", "{}")
+        response_text = re.sub(r"```(?:json)?\n?|```", "", response_text).strip()
+        shorts_data = json.loads(response_text)
+        raw_shorts = shorts_data.get("shorts", [])
+    except (ValueError, AttributeError, TypeError) as e:
+        raise OllamaError(f"Ollama вернула некорректный JSON: {e}") from e
+
+    # Ollama обрезает длинный промпт без ошибки, поэтому о потере текста судим по счётчику токенов.
+    truncated = data.get("prompt_eval_count", 0) >= OLLAMA_NUM_CTX * 0.95
+    return validate_shorts(raw_shorts), truncated
 
 def format_time_srt(seconds):
     ms = int((seconds % 1) * 1000)
@@ -253,7 +294,19 @@ def process_short_video(input_video, short_start, short_end, output_path, format
         output_path
     ])
     
-    subprocess.run(out_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    run_ffmpeg(out_cmd)
+
+def unique_output_filename(title, index):
+    safe_title = "".join(c for c in title if c.isalnum() or c in " _-").strip()
+    if not safe_title:
+        safe_title = f"short_{index+1}"
+
+    filename = f"{safe_title}.mp4"
+    suffix = 2
+    while os.path.exists(os.path.join(OUTPUT_DIR, filename)):
+        filename = f"{safe_title}_{suffix}.mp4"
+        suffix += 1
+    return filename
 
 
 # --- FastAPI Application ---
@@ -269,6 +322,7 @@ app_state = {
     "file_path": None,
     "render_payload": {}
 }
+task_lock = asyncio.Lock()
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -280,13 +334,16 @@ async def upload_video(
     video_url: str = Form(None),
     video_file: UploadFile = File(None)
 ):
-    cleanup_temp_files()
+    if task_lock.locked():
+        raise HTTPException(status_code=409, detail=BUSY_MESSAGE)
+
+    await asyncio.to_thread(cleanup_temp_files)
     input_video = os.path.join(TEMP_DIR, "input_video.mp4")
-    
+
     app_state["video_url"] = video_url
     if video_file and video_file.filename:
         with open(input_video, "wb") as buffer:
-            shutil.copyfileobj(video_file.file, buffer)
+            await asyncio.to_thread(shutil.copyfileobj, video_file.file, buffer)
         app_state["file_path"] = input_video
     else:
         app_state["file_path"] = None
@@ -296,39 +353,47 @@ async def upload_video(
 @app.get("/api/analyze_stream")
 async def analyze_stream():
     async def event_generator():
-        try:
-            input_video = os.path.join(TEMP_DIR, "input_video.mp4")
-            audio_path = os.path.join(TEMP_DIR, "audio.wav")
-            
-            if app_state["video_url"]:
-                yield f"data: {json.dumps({'status': '⏳ Скачивание видео с YouTube...', 'progress': 10})}\n\n"
-                download_youtube_video(app_state["video_url"], input_video)
-            elif app_state["file_path"]:
-                yield f"data: {json.dumps({'status': '⏳ Видео загружено...', 'progress': 10})}\n\n"
-            else:
-                yield f"data: {json.dumps({'status': '❌ Ошибка: Нет видео', 'error': True})}\n\n"
-                return
-                
-            yield f"data: {json.dumps({'status': '⏳ Извлечение аудиодорожки...', 'progress': 30})}\n\n"
-            extract_audio(input_video, audio_path)
-            
-            yield f"data: {json.dumps({'status': '⏳ Транскрибация (Whisper, GPU)...', 'progress': 50})}\n\n"
-            transcript, segments = transcribe_audio(audio_path)
-            app_state["segments"] = segments
-            
-            yield f"data: {json.dumps({'status': '⏳ Анализ нейросетью (Ollama)...', 'progress': 80})}\n\n"
-            shorts_metadata = analyze_with_ollama(transcript)
-            app_state["shorts_metadata"] = shorts_metadata
-            
-            if not shorts_metadata:
-                yield f"data: {json.dumps({'status': '❌ Ошибка: Ollama не нашла моментов', 'error': True})}\n\n"
-                return
-                
-            yield f"data: {json.dumps({'status': '✅ Анализ завершен!', 'progress': 100, 'done': True, 'shorts': shorts_metadata})}\n\n"
-        except Exception as e:
-            traceback.print_exc()
-            yield f"data: {json.dumps({'status': f'❌ Ошибка: {str(e)}', 'error': True})}\n\n"
-            
+        if task_lock.locked():
+            yield f"data: {json.dumps({'status': f'❌ {BUSY_MESSAGE}', 'error': True})}\n\n"
+            return
+
+        async with task_lock:
+            try:
+                input_video = os.path.join(TEMP_DIR, "input_video.mp4")
+                audio_path = os.path.join(TEMP_DIR, "audio.wav")
+
+                if app_state["video_url"]:
+                    yield f"data: {json.dumps({'status': '⏳ Скачивание видео с YouTube...', 'progress': 10})}\n\n"
+                    await asyncio.to_thread(download_youtube_video, app_state["video_url"], input_video)
+                elif app_state["file_path"]:
+                    yield f"data: {json.dumps({'status': '⏳ Видео загружено...', 'progress': 10})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'status': '❌ Ошибка: Нет видео', 'error': True})}\n\n"
+                    return
+
+                yield f"data: {json.dumps({'status': '⏳ Извлечение аудиодорожки...', 'progress': 30})}\n\n"
+                await asyncio.to_thread(extract_audio, input_video, audio_path)
+
+                yield f"data: {json.dumps({'status': '⏳ Транскрибация (Whisper, GPU)...', 'progress': 50})}\n\n"
+                transcript, segments = await asyncio.to_thread(transcribe_audio, audio_path)
+                app_state["segments"] = segments
+
+                yield f"data: {json.dumps({'status': '⏳ Анализ нейросетью (Ollama)...', 'progress': 80})}\n\n"
+                shorts_metadata, truncated = await asyncio.to_thread(analyze_with_ollama, transcript)
+                app_state["shorts_metadata"] = shorts_metadata
+
+                if not shorts_metadata:
+                    yield f"data: {json.dumps({'status': '❌ Ошибка: Ollama не нашла моментов', 'error': True})}\n\n"
+                    return
+
+                status = '✅ Анализ завершен!'
+                if truncated:
+                    status = '⚠️ Анализ завершен, но транскрипт не поместился в контекст модели: часть видео могла не учитываться'
+                yield f"data: {json.dumps({'status': status, 'progress': 100, 'done': True, 'shorts': shorts_metadata})}\n\n"
+            except Exception as e:
+                traceback.print_exc()
+                yield f"data: {json.dumps({'status': f'❌ Ошибка: {str(e)}', 'error': True})}\n\n"
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 class RenderPayload(BaseModel):
@@ -345,53 +410,67 @@ async def render_start(payload: RenderPayload):
 @app.get("/api/render_stream")
 async def render_stream():
     async def event_generator():
-        try:
-            payload = app_state.get("render_payload", {})
-            selected_indices = payload.get("selected_indices", [])
-            format_type = payload.get("format_type", "Шортс (9:16 с рамками)")
-            do_subs = payload.get("do_subs", False)
-            do_silence = payload.get("do_silence", False)
-            
-            all_segments = app_state.get("segments", [])
-            shorts_metadata = app_state.get("shorts_metadata", [])
-            input_video = os.path.join(TEMP_DIR, "input_video.mp4")
-            
-            selected_shorts = [shorts_metadata[i] for i in selected_indices if i < len(shorts_metadata)]
-            
-            output_files = []
-            errors = []
-            
-            for i, short in enumerate(selected_shorts):
-                title = short.get("title", f"short_{i+1}")
-                start = float(short.get("start", 0))
-                end = float(short.get("end", 0))
-                
-                yield f"data: {json.dumps({'status': f'⏳ Рендер {i+1}/{len(selected_shorts)}: {title}...', 'progress': int(((i) / len(selected_shorts))*100)})}\n\n"
-                
-                concat_path, srt_path = prepare_render_data(start, end, all_segments, do_silence, do_subs, TEMP_DIR, i)
-                
-                safe_title = "".join(c for c in title if c.isalnum() or c in " _-").rstrip()
-                out_file = os.path.join(OUTPUT_DIR, f"{safe_title}.mp4")
-                
-                try:
-                    process_short_video(input_video, start, end, out_file, format_type, concat_path, srt_path, do_subs)
-                    output_files.append(f"/output_shorts/{safe_title}.mp4")
-                except Exception as e:
-                    traceback.print_exc()
-                    errors.append(title)
-                    
-            if errors and not output_files:
-                yield f"data: {json.dumps({'status': '❌ Ошибка рендера', 'error': True})}\n\n"
-            else:
-                yield f"data: {json.dumps({'status': '✅ Успешно отрендерено!', 'progress': 100, 'done': True, 'files': output_files})}\n\n"
-        except Exception as e:
-            traceback.print_exc()
-            yield f"data: {json.dumps({'status': f'❌ Ошибка: {str(e)}', 'error': True})}\n\n"
-        finally:
-            free_vram()
-            
+        if task_lock.locked():
+            yield f"data: {json.dumps({'status': f'❌ {BUSY_MESSAGE}', 'error': True})}\n\n"
+            return
+
+        async with task_lock:
+            try:
+                payload = app_state.get("render_payload", {})
+                selected_indices = payload.get("selected_indices", [])
+                format_type = payload.get("format_type", "Шортс (9:16 с рамками)")
+                do_subs = payload.get("do_subs", False)
+                do_silence = payload.get("do_silence", False)
+
+                all_segments = app_state.get("segments", [])
+                shorts_metadata = app_state.get("shorts_metadata", [])
+                input_video = os.path.join(TEMP_DIR, "input_video.mp4")
+
+                selected_shorts = [shorts_metadata[i] for i in selected_indices if 0 <= i < len(shorts_metadata)]
+
+                output_files = []
+                errors = []
+                last_error = ""
+
+                for i, short in enumerate(selected_shorts):
+                    title = short.get("title", f"short_{i+1}")
+                    start = float(short.get("start", 0))
+                    end = float(short.get("end", 0))
+
+                    yield f"data: {json.dumps({'status': f'⏳ Рендер {i+1}/{len(selected_shorts)}: {title}...', 'progress': int(((i) / len(selected_shorts))*100)})}\n\n"
+
+                    concat_path, srt_path = prepare_render_data(start, end, all_segments, do_silence, do_subs, TEMP_DIR, i)
+
+                    filename = unique_output_filename(title, i)
+                    out_file = os.path.join(OUTPUT_DIR, filename)
+
+                    try:
+                        await asyncio.to_thread(process_short_video, input_video, start, end, out_file, format_type, concat_path, srt_path, do_subs)
+                        output_files.append(f"/output_shorts/{filename}")
+                    except Exception as e:
+                        traceback.print_exc()
+                        errors.append(title)
+                        last_error = str(e)
+
+                if errors and not output_files:
+                    yield f"data: {json.dumps({'status': f'❌ Ошибка рендера: {last_error}', 'error': True, 'failed': errors})}\n\n"
+                else:
+                    status = '✅ Успешно отрендерено!'
+                    if errors:
+                        status = f'⚠️ Отрендерено {len(output_files)} из {len(selected_shorts)}'
+                    yield f"data: {json.dumps({'status': status, 'progress': 100, 'done': True, 'files': output_files, 'failed': errors})}\n\n"
+            except Exception as e:
+                traceback.print_exc()
+                yield f"data: {json.dumps({'status': f'❌ Ошибка: {str(e)}', 'error': True})}\n\n"
+            finally:
+                free_vram()
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 if __name__ == "__main__":
-    print("Запуск FastAPI сервера на http://localhost:7860 ...")
-    uvicorn.run(app, host="0.0.0.0", port=7860, log_level="warning")
+    if not shutil.which("ffmpeg"):
+        print("❌ ОШИБКА: FFmpeg не найден! Убедитесь, что он установлен и добавлен в PATH.")
+        exit(1)
+
+    print(f"Запуск FastAPI сервера на http://{HOST}:7860 ...")
+    uvicorn.run(app, host=HOST, port=7860, log_level="warning")

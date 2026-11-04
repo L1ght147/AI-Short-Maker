@@ -20,7 +20,7 @@ if %errorlevel% neq 0 (
     echo [!] Server stopped with ERROR CODE: %errorlevel%
     echo [!] Possible causes:
     echo     - Port 7860 is already in use
-    echo     - Missing libraries (run install.bat)
+    echo     - Missing libraries, run install.bat
     echo     - Python is not in PATH
     echo.
     pause

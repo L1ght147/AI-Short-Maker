@@ -48,6 +48,13 @@ Faster Whisper, отправляет транскрипт в локальную 
 
 Если ваша среда отличается, измените соответствующие значения в `main.py`.
 
+## Конфигурация
+
+| Переменная | По умолчанию | Описание |
+| --- | --- | --- |
+| `FFMPEG_DIR` | не задана | Каталог `bin` с FFmpeg, если его нет в `PATH`. |
+| `HOST` | `127.0.0.1` | Адрес сервера. Значение `0.0.0.0` открывает доступ из локальной сети без авторизации. |
+
 ## Установка
 
 ### Windows
@@ -122,10 +129,13 @@ http://localhost:7860
 .
 ├── main.py
 ├── requirements.txt
+├── requirements-dev.txt
 ├── install.bat
 ├── run.bat
-└── templates
-    └── index.html
+├── templates
+│   └── index.html
+└── tests
+    └── test_main.py
 ```
 
 ### `main.py`
@@ -191,7 +201,8 @@ http://localhost:7860
 7. Пользователь выбирает клипы для рендера.
 8. Приложение генерирует `.srt`-файлы и, при включенном удалении тишины,
    concat-файлы для FFmpeg.
-9. FFmpeg записывает итоговые MP4-файлы в `output_shorts`.
+9. FFmpeg записывает итоговые MP4-файлы в `output_shorts`. При совпадении имени
+   к новому файлу добавляется суффикс `_2`, `_3`.
 
 ## Рабочие директории
 
@@ -205,19 +216,29 @@ http://localhost:7860
 
 ## Ограничения текущей реализации
 
-- Состояние хранится в глобальном словаре `app_state`. Параллельные пользователи
-  или несколько одновременных задач будут конфликтовать.
-- Тяжелые операции анализа и рендера выполняются внутри request handler'ов
-  FastAPI. Длинная задача может блокировать worker.
+- Состояние хранится в глобальном словаре `app_state`, поэтому приложение
+  рассчитано на одного пользователя.
+- Одновременно выполняется одна задача анализа или рендера. Повторный запуск и
+  новая загрузка во время задачи получают ошибку.
+- Если закрыть вкладку во время задачи, текущий шаг (FFmpeg, Whisper, Ollama)
+  доработает в фоновом потоке и может конфликтовать с новой задачей.
+- Транскрипт длиннее `OLLAMA_NUM_CTX` обрезается на стороне Ollama. Интерфейс
+  показывает предупреждение, но текст на части не делится.
 - Транскрибация жестко настроена на русский язык: `language="ru"`.
 - Whisper жестко настроен на CUDA и `float16`.
 - Рендер жестко использует `h264_nvenc`.
 - Endpoint и модель Ollama заданы константами в `main.py`.
-- Имена выходных файлов строятся из названий, которые вернула модель. Повторные
-  названия могут перезаписать существующие файлы.
-- `extract_audio()` скрывает вывод FFmpeg и не проверяет код возврата через
-  `check=True`, поэтому ошибка извлечения аудио может проявиться позже.
 - UI частично англоязычный, а backend-статусы русскоязычные.
+
+## Тесты
+
+Тесты заменяют `yt_dlp`, `cv2`, `torch` и `faster_whisper` заглушками, поэтому
+GPU, FFmpeg и Ollama для них не нужны.
+
+```bash
+pip install fastapi uvicorn python-multipart jinja2 requests -r requirements-dev.txt
+python -m pytest tests
+```
 
 ## Решение частых проблем
 
@@ -301,6 +322,13 @@ The code currently hard-codes these settings:
 
 If your environment differs, update the corresponding values in `main.py`.
 
+## Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `FFMPEG_DIR` | not set | FFmpeg `bin` directory, if FFmpeg is not in `PATH`. |
+| `HOST` | `127.0.0.1` | Server address. `0.0.0.0` exposes the app to the local network without authentication. |
+
 ## Installation
 
 ### Windows
@@ -374,10 +402,13 @@ http://localhost:7860
 .
 ├── main.py
 ├── requirements.txt
+├── requirements-dev.txt
 ├── install.bat
 ├── run.bat
-└── templates
-    └── index.html
+├── templates
+│   └── index.html
+└── tests
+    └── test_main.py
 ```
 
 ### `main.py`
@@ -443,7 +474,8 @@ Rendered videos are served from the `/output_shorts` static route.
 7. The user selects clips for rendering.
 8. The application generates `.srt` files and, when silence trimming is enabled,
    FFmpeg concat files.
-9. FFmpeg writes the final MP4 files to `output_shorts`.
+9. FFmpeg writes the final MP4 files to `output_shorts`. If a name is already
+   taken, the new file gets a `_2`, `_3` suffix.
 
 ## Runtime directories
 
@@ -457,19 +489,29 @@ automatically.
 
 ## Current limitations
 
-- State is stored in the global `app_state` dictionary. Parallel users or
-  multiple simultaneous jobs will conflict.
-- Heavy analysis and rendering work runs inside FastAPI request handlers. A long
-  job can block the worker.
+- State is stored in the global `app_state` dictionary, so the app supports one
+  user.
+- One analysis or render job runs at a time. A repeated start or a new upload
+  during a job gets an error.
+- If the tab is closed during a job, the current step (FFmpeg, Whisper, Ollama)
+  keeps running in a background thread and can conflict with a new job.
+- A transcript longer than `OLLAMA_NUM_CTX` is truncated by Ollama. The UI shows
+  a warning, but the text is not split into parts.
 - Transcription is hard-coded to Russian: `language="ru"`.
 - Whisper is hard-coded to CUDA and `float16`.
 - Rendering is hard-coded to `h264_nvenc`.
 - The Ollama endpoint and model are constants in `main.py`.
-- Output filenames are built from model-generated titles. Duplicate titles can
-  overwrite existing files.
-- `extract_audio()` hides FFmpeg output and does not check the return code with
-  `check=True`, so an audio extraction error can appear later.
 - The UI is partly English, while backend status messages are in Russian.
+
+## Tests
+
+The tests replace `yt_dlp`, `cv2`, `torch`, and `faster_whisper` with stubs, so
+they do not need a GPU, FFmpeg, or Ollama.
+
+```bash
+pip install fastapi uvicorn python-multipart jinja2 requests -r requirements-dev.txt
+python -m pytest tests
+```
 
 ## Troubleshooting
 

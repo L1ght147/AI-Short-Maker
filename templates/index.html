@@ -529,7 +529,9 @@
                 uploading: "Загрузка файла на сервер...",
                 preparing: "Подготовка конвейера рендера...",
                 zeroItems: "Предупреждение: выбрано 0 элементов для рендера.",
-                noSource: "Ошибка: Источник не предоставлен."
+                noSource: "Ошибка: Источник не предоставлен.",
+                streamLost: "Соединение с сервером потеряно. Проверьте сервер и запустите задачу заново.",
+                failedClips: "Не удалось отрендерить"
             },
             en: {
                 subtitle: "Neural Content Extraction Engine",
@@ -557,7 +559,9 @@
                 uploading: "Uploading assets to server...",
                 preparing: "Preparing render pipeline...",
                 zeroItems: "Render Warning: Zero items selected for production.",
-                noSource: "Engine Error: No source asset provided."
+                noSource: "Engine Error: No source asset provided.",
+                streamLost: "Connection to the server lost. Check the server and start the job again.",
+                failedClips: "Failed to render"
             }
         };
 
@@ -658,10 +662,12 @@
                                 div.innerHTML = `
                                     <input type="checkbox" value="${idx}" checked style="appearance:none; width:16px; height:16px; border:1px solid var(--border); border-radius:4px; background:var(--bg); cursor:pointer;">
                                     <div class="short-info">
-                                        <span class="short-title">${s.title}</span>
-                                        <span class="short-meta">${t.duration}: ${s.start}s — ${s.end}s</span>
+                                        <span class="short-title"></span>
+                                        <span class="short-meta"></span>
                                     </div>
                                 `;
+                                div.querySelector('.short-title').textContent = s.title;
+                                div.querySelector('.short-meta').textContent = `${t.duration}: ${s.start}s — ${s.end}s`;
                                 const cb = div.querySelector('input');
                                 cb.addEventListener('change', () => {
                                     cb.style.background = cb.checked ? 'var(--primary)' : 'var(--bg)';
@@ -673,6 +679,13 @@
                             step2Container.scrollIntoView({ behavior: 'smooth' });
                         }
                     }
+                };
+                // Без close() браузер переподключится и сервер запустит задачу заново.
+                eventSource.onerror = function() {
+                    eventSource.close();
+                    updateStatus(t.streamLost, null, true);
+                    btnAnalyze.disabled = false;
+                    document.getElementById('t-btn-analyze').innerText = t.btnAnalyze;
                 };
             } catch (err) {
                 updateStatus("System Halt: " + err.message, null, true);
@@ -724,7 +737,11 @@
                         btnRender.disabled = false;
                         btnAnalyze.disabled = false;
                         document.getElementById('t-btn-analyze').innerText = t.btnAnalyze;
-                        
+
+                        if (data.done && data.failed && data.failed.length > 0) {
+                            updateStatus(`${data.status}. ${t.failedClips}: ${data.failed.join(', ')}`, data.progress);
+                        }
+
                         if (data.done && data.files) {
                             videoResults.innerHTML = '';
                             data.files.forEach(f => {
@@ -732,18 +749,29 @@
                                 const div = document.createElement('div');
                                 div.className = 'result-card' + (formatType.includes('Исходное') ? ' wide' : '');
                                 div.innerHTML = `
-                                    <video src="${f}" controls preload="metadata"></video>
+                                    <video controls preload="metadata"></video>
                                     <div class="result-footer">
-                                        <span style="font-size:0.7rem; color:var(--text-dim); font-family:monospace;">${filename}</span>
-                                        <a href="${f}" download class="download-link">${t.download}</a>
+                                        <span style="font-size:0.7rem; color:var(--text-dim); font-family:monospace;"></span>
+                                        <a download class="download-link"></a>
                                     </div>
                                 `;
+                                div.querySelector('video').src = f;
+                                div.querySelector('.result-footer span').textContent = filename;
+                                const link = div.querySelector('.download-link');
+                                link.href = f;
+                                link.textContent = t.download;
                                 videoResults.appendChild(div);
                             });
                             resultsContainer.classList.remove('hidden');
                             resultsContainer.scrollIntoView({ behavior: 'smooth' });
                         }
                     }
+                };
+                eventSource.onerror = function() {
+                    eventSource.close();
+                    updateStatus(t.streamLost, null, true);
+                    btnRender.disabled = false;
+                    btnAnalyze.disabled = false;
                 };
             } catch (err) {
                 updateStatus("Render Critical Error: " + err.message, null, true);
